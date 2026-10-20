@@ -1,0 +1,11 @@
+# Configuração do Hermes Agent usada no GitHub Actions.
+# É copiada para ~/.hermes/config.yaml a cada execução.
+# A chave da API NÃO fica aqui: ela vem do Secret GEMINI_API_KEY.
+
+model:
+  # Alias que acompanha o Gemini Flash mais recente.
+  # Se a sua chave não tiver acesso a ele, troque por outro modelo
+  # da lista em https://hermes-agent.nousresearch.com/docs/guides/google-gemini
+  default: gemini-flash-latest
+  provider: gemini
+  base_url: https://generativelanguage.googleapis.com/v1beta

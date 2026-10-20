@@ -1,0 +1,20 @@
+# Fontes de notícias (RSS).
+# Formato: Categoria | Nome do veículo | URL do feed
+# Cada categoria vira uma seção do email. Linhas começando com # são ignoradas.
+#
+# Critério de escolha: linhas editoriais variadas e, em política, fontes
+# institucionais, para que "mais falado" não dependa de um único veículo.
+# Todos os feeds abaixo foram testados em 20/10/2026.
+
+Política | Agência Brasil | https://agenciabrasil.ebc.com.br/rss/politica/feed.xml
+Política | Poder360 | https://www.poder360.com.br/feed/
+Política | Gazeta do Povo | https://www.gazetadopovo.com.br/feed/rss/republica.xml
+Política | CartaCapital | https://www.cartacapital.com.br/politica/feed/
+Política | Câmara dos Deputados | https://www.camara.leg.br/noticias/rss/ultimas-noticias
+Política | Senado Federal | https://www12.senado.leg.br/noticias/feed/todasnoticias/RSS
+
+Cripto | Livecoins | https://livecoins.com.br/feed/
+Cripto | CoinDesk | https://www.coindesk.com/arc/outboundfeeds/rss/
+Cripto | Cointelegraph | https://cointelegraph.com/rss
+Cripto | Decrypt | https://decrypt.co/feed
+Cripto | The Block | https://www.theblock.co/rss.xml

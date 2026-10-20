@@ -1,0 +1,81 @@
+name: Briefing diário (política e cripto)
+
+on:
+  schedule:
+    # Todo dia às 10:17 UTC = 07:17 em Brasília (UTC-3).
+    # Minuto "quebrado" de propósito: horários cheios atrasam mais no GitHub.
+    - cron: "17 10 * * *"
+  workflow_dispatch: # botão "Run workflow" para rodar na hora (ex.: na entrevista)
+
+# Privilégio mínimo: o job só precisa ler o próprio repositório.
+permissions:
+  contents: read
+
+concurrency:
+  group: briefing
+  cancel-in-progress: false
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Etapa 1 — sem IA: coleta títulos e links dos feeds RSS.
+      - name: Coletar manchetes
+        run: |
+          python scripts/fetch_news.py \
+            --feeds feeds.txt \
+            --template prompts/briefing.txt \
+            --hours 24 \
+            --out prompt.txt
+
+      # Etapa 2 — instala o Hermes Agent pelo instalador oficial.
+      - name: Instalar Hermes Agent
+        run: |
+          curl -fsSL https://hermes-agent.nousresearch.com/install.sh -o "$RUNNER_TEMP/install.sh"
+          echo "SHA-256 do instalador (para auditoria):"
+          sha256sum "$RUNNER_TEMP/install.sh"
+          bash "$RUNNER_TEMP/install.sh" < /dev/null
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Configurar Hermes e a skill
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          mkdir -p ~/.hermes/skills/briefing-diario
+          cp hermes/config.yaml ~/.hermes/config.yaml
+          cp skills/briefing-diario/SKILL.md ~/.hermes/skills/briefing-diario/SKILL.md
+          umask 077
+          printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" > ~/.hermes/.env
+          hermes --version
+
+      # Etapa 3 — o agente só resume. Sem terminal e sem web (--toolsets skills),
+      # e sem acesso à senha do email, que só existe na etapa seguinte.
+      - name: Gerar briefing com o Hermes
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          hermes chat --oneshot --quiet \
+            --skills briefing-diario \
+            --toolsets skills \
+            --query-file prompt.txt > digest.txt
+          echo "----- briefing gerado -----"
+          cat digest.txt
+          test -s digest.txt
+
+      # Etapa 4 — envio. Só esta etapa recebe as credenciais do Gmail.
+      - name: Enviar email
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python scripts/send_email.py digest.txt

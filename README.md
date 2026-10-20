@@ -34,20 +34,25 @@ Cada tópico mostra quais veículos cobriram o assunto e traz um link para confe
 
 ## Como funciona
 
-O trabalho é dividido em três etapas. Só a etapa do meio usa IA. A coleta e o envio são código comum, que faz sempre a mesma coisa.
+O trabalho é dividido em três etapas, que rodam no GitHub Actions todo dia às 7h17. Só a etapa do meio usa IA. A coleta e o envio são código comum, que faz sempre a mesma coisa.
+
+O envio roda numa segunda máquina, criada do zero, onde o Hermes nunca foi instalado. Assim, a senha do email nunca fica no mesmo lugar que o código de terceiros.
 
 ```mermaid
 flowchart LR
     feeds[("Feeds RSS públicos")]
     inbox(["Caixa de entrada"])
-    subgraph actions["GitHub Actions · máquina temporária · todo dia às 7h17"]
+    subgraph m1["Máquina 1 · coleta e IA"]
         direction LR
         coleta["<b>1. Coleta</b><br/>fetch_news.py, sem IA<br/>11 feeds: título + link<br/><i>Acesso: nenhum segredo</i>"]
         resumo["<b>2. Resumo</b><br/>Hermes Agent + Gemini<br/>sem terminal, sem web<br/><i>Acesso: só a chave do Gemini</i>"]
-        envio["<b>3. Envio</b><br/>send_email.py, sem IA<br/>Gmail com conexão TLS<br/><i>Acesso: só a senha de app</i>"]
-        coleta --> resumo --> envio
+        coleta --> resumo
+    end
+    subgraph m2["Máquina 2 · envio"]
+        envio["<b>3. Envio</b><br/>send_email.py, sem IA<br/>confere os links e envia<br/><i>Acesso: só a senha de app</i>"]
     end
     feeds --> coleta
+    resumo -- "só o texto do resumo" --> envio
     envio --> inbox
     aviso["Lê texto vindo da internet:<br/>tratado como não confiável"] -.- resumo
     classDef ia stroke:#2f81f7,stroke-width:2px
@@ -60,7 +65,7 @@ flowchart LR
 | --- | --- | :---: | --- |
 | **1. Coleta** | Lê os feeds RSS e separa título e link das notícias das últimas 24 horas | Não | Nenhuma senha |
 | **2. Resumo** | O Hermes segue a skill `briefing-diario` e escreve os 5 tópicos de cada seção | Sim | Só a chave do Gemini |
-| **3. Envio** | Monta o email em texto simples e envia pelo Gmail | Não | Só a senha de app |
+| **3. Envio** | Confere se todo link veio da coleta, monta o email em texto simples e envia pelo Gmail, numa máquina separada | Não | Só a senha de app |
 
 ## Como o "mais falado" é escolhido
 
@@ -93,12 +98,12 @@ O ponto central do projeto: o agente lê texto que vem da internet, e esse texto
 | --- | --- |
 | **Instrução escondida numa manchete** (prompt injection) | Só título e link chegam ao modelo, nunca o texto completo da matéria. O texto é limpo antes (sem HTML e sem os caracteres `<`, `>` e `#`, para ninguém imitar os marcadores do prompt). O prompt e a skill avisam que manchete é dado, não ordem. |
 | **Agente com poder demais** | O Hermes roda só com a ferramenta de skills (`--toolsets skills`): sem terminal e sem acesso à web. A coleta é feita por um script, não pelo agente. |
-| **Vazamento de senha** | As senhas ficam nos Secrets do GitHub, guardadas com criptografia e escondidas nos logs. Cada etapa recebe só a senha que usa: a senha do email não existe na etapa do agente. O workflow só tem permissão de leitura no repositório. |
+| **Vazamento de senha** | As senhas ficam nos Secrets do GitHub, guardadas com criptografia e escondidas nos logs. O envio roda numa segunda máquina, criada do zero: a senha do email nunca fica onde o Hermes foi instalado, e só o texto do resumo passa de uma máquina para a outra. O token do GitHub não fica gravado em disco e só tem permissão de leitura. |
 | **Conta de email exposta** | O envio usa uma senha de app, separada da senha principal da conta e que pode ser cancelada a qualquer momento. Uma conta só para o envio isolaria ainda mais; preferi a simplicidade de usar a minha. |
-| **Código de terceiros comprometido** | O Hermes é instalado pelo instalador oficial, e o resumo SHA-256 do instalador fica registrado em cada execução. Os scripts em Python usam só a biblioteca padrão. |
-| **Golpes e propaganda em cripto** | A skill descarta conteúdo patrocinado e promoções do tipo "airdrop grátis" e proíbe sugerir compra ou venda. Todo link do email precisa vir da lista coletada, então o agente não consegue incluir um link novo. |
+| **Código de terceiros comprometido** | As actions do GitHub estão fixadas pelo código exato do commit, não por um nome de versão que pode ser trocado. O Hermes vem do instalador oficial, com o resumo SHA-256 registrado em cada execução, e roda isolado da senha do email. Os scripts em Python usam só a biblioteca padrão. |
+| **Golpes e propaganda em cripto** | A skill descarta conteúdo patrocinado e promoções do tipo "airdrop grátis" e proíbe sugerir compra ou venda. Antes do envio, o código confere cada link do email: o que não veio da coleta é removido. |
 | **Resumo errado ou tendencioso** | Regras de escrita neutra, declarações sempre atribuídas a quem falou e uma conferência final: cada frase precisa estar apoiada numa manchete. O aviso "não é recomendação de investimento" é colocado pelo código, não depende da IA lembrar. |
-| **Feed quebrado ou malicioso** | Limite de tamanho e de tempo de download, no máximo 30 notícias por veículo e só links `https://`. Se menos de 2 fontes de uma seção responderem, a seção fica de fora em vez de sair desequilibrada. |
+| **Feed quebrado ou malicioso** | Limite de tamanho e de tempo de download, no máximo 30 notícias por veículo, só links `https://` e nenhum redirecionamento para endereço sem HTTPS. Se menos de 2 fontes de uma seção responderem, a seção fica de fora em vez de sair desequilibrada. |
 
 ## Como usar no seu repositório
 

@@ -7,7 +7,7 @@ on:
     - cron: "17 10 * * *"
   workflow_dispatch: # botão "Run workflow" para rodar na hora (ex.: na entrevista)
 
-# Privilégio mínimo: o job só precisa ler o próprio repositório.
+# Privilégio mínimo: os jobs só precisam ler o próprio repositório.
 permissions:
   contents: read
 
@@ -15,21 +15,28 @@ concurrency:
   group: briefing
   cancel-in-progress: false
 
+# As actions de terceiros estão fixadas pelo commit (SHA), não pela tag.
+# Uma tag pode ser movida por quem controla o repositório da action; um SHA não.
+
 jobs:
-  briefing:
+  # JOB 1: coleta + IA. Roda código de terceiros (instalador e Hermes)
+  # e por isso NUNCA recebe a senha do email.
+  gerar:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Baixar o repositório
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # não deixa o token do GitHub gravado em disco
 
       - name: Preparar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
-      # Etapa 1 — sem IA: coleta títulos e links dos feeds RSS.
+      # Etapa 1, sem IA: coleta títulos e links dos feeds RSS.
       - name: Coletar manchetes
         run: |
           python scripts/fetch_news.py \
@@ -38,7 +45,7 @@ jobs:
             --hours 24 \
             --out prompt.txt
 
-      # Etapa 2 — instala o Hermes Agent pelo instalador oficial.
+      # Etapa 2: instala o Hermes Agent pelo instalador oficial.
       - name: Instalar Hermes Agent
         run: |
           curl -fsSL https://hermes-agent.nousresearch.com/install.sh -o "$RUNNER_TEMP/install.sh"
@@ -58,24 +65,87 @@ jobs:
           printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" > ~/.hermes/.env
           hermes --version
 
-      # Etapa 3 — o agente só resume. Sem terminal e sem web (--toolsets skills),
-      # e sem acesso à senha do email, que só existe na etapa seguinte.
+      # Diagnóstico rápido: a chave e o modelo respondem? Falha em segundos,
+      # com a mensagem do Google, em vez de travar dentro do agente.
+      - name: Testar chave e modelo do Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          MODEL=$(grep -E '^\s*default:' hermes/config.yaml | awk '{print $2}')
+          echo "Modelo configurado: $MODEL"
+          code=$(curl -sS -o gemini_test.json -w '%{http_code}' \
+            -H "x-goog-api-key: $GEMINI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"contents":[{"parts":[{"text":"Responda apenas: ok"}]}]}' \
+            "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent")
+          echo "Resposta do Gemini: HTTP $code"
+          if [ "$code" != "200" ]; then
+            python -c "import json; e=json.load(open('gemini_test.json')).get('error', {}); print(e.get('status'), '-', e.get('message'))"
+            echo "Modelos de texto disponíveis para esta chave:"
+            curl -sS -H "x-goog-api-key: $GEMINI_API_KEY" \
+              "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200" \
+              | python -c "import json, sys; [print('  ' + m['name'].split('/')[-1]) for m in json.load(sys.stdin).get('models', []) if 'generateContent' in m.get('supportedGenerationMethods', [])]"
+            exit 1
+          fi
+
+      # Etapa 3: o agente só resume. Sem terminal e sem web (--toolsets skills).
+      # Limite de 20 minutos e logs do Hermes impressos se algo der errado.
       - name: Gerar briefing com o Hermes
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          hermes chat --oneshot --quiet \
+          status=0
+          timeout 1200 hermes chat --oneshot --quiet \
             --skills briefing-diario \
             --toolsets skills \
-            --query-file prompt.txt > digest.txt
+            --max-turns 5 \
+            --query-file prompt.txt \
+            < /dev/null > digest.txt 2> hermes_stderr.log || status=$?
+          echo "Código de saída do Hermes: $status (124 = passou de 20 minutos)"
+          if [ "$status" != "0" ] || [ ! -s digest.txt ]; then
+            echo "----- stderr do Hermes -----"
+            tail -n 60 hermes_stderr.log || true
+            echo "----- logs do Hermes -----"
+            ls -la ~/.hermes/logs 2>/dev/null || true
+            tail -n 80 ~/.hermes/logs/*.log 2>/dev/null || true
+            exit 1
+          fi
           echo "----- briefing gerado -----"
           cat digest.txt
-          test -s digest.txt
 
-      # Etapa 4 — envio. Só esta etapa recebe as credenciais do Gmail.
+      # Passa para o job de envio só o texto do briefing e a lista de links
+      # coletados (o prompt). Nenhum segredo vai junto.
+      - name: Guardar o briefing para o envio
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: briefing
+          path: |
+            digest.txt
+            prompt.txt
+          retention-days: 1
+
+  # JOB 2: envio. Roda numa máquina NOVA, onde o Hermes nunca foi instalado.
+  # Só aqui existe a senha do email.
+  enviar:
+    needs: gerar
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Receber o briefing
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: briefing
+
+      # Etapa 4: confere os links e envia. Python do sistema, sem dependências.
       - name: Enviar email
         env:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-        run: python scripts/send_email.py digest.txt
+        run: /usr/bin/python3 scripts/send_email.py digest.txt --allowed-links prompt.txt

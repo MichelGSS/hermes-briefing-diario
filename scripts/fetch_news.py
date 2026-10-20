@@ -54,9 +54,21 @@ def read_feeds(path: str) -> list[tuple[str, str, str]]:
     return feeds
 
 
+class HttpsOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """Recusa redirecionamento para fora do HTTPS (ex.: um feed que mande para http://)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.lower().startswith("https://"):
+            raise ValueError(f"redirecionamento recusado para endereço sem HTTPS: {newurl[:80]}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+OPENER = urllib.request.build_opener(HttpsOnlyRedirects)
+
+
 def download(url: str) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
+    with OPENER.open(req, timeout=TIMEOUT_SECONDS) as resp:
         data = resp.read(MAX_FEED_BYTES + 1)
     if len(data) > MAX_FEED_BYTES:
         raise ValueError("feed maior que o limite")

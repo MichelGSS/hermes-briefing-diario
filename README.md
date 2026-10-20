@@ -30,13 +30,27 @@ Cripto: informativo, não é recomendação de investimento.
 
 ## How it works
 
+```mermaid
+flowchart LR
+    feeds[("Public RSS feeds")]
+    inbox(["My inbox"])
+    subgraph actions["GitHub Actions · temporary runner · daily at 07:17 or Run workflow"]
+        direction LR
+        collect["<b>1. Collect headlines</b><br/>fetch_news.py, no AI<br/>11 RSS feeds: title + link<br/><i>Access: no secrets</i>"]
+        hermes["<b>2. Summarize with Hermes</b><br/>skill briefing-diario + Gemini<br/>No terminal, no web<br/><i>Access: Gemini key only</i>"]
+        send["<b>3. Send email</b><br/>send_email.py, no AI<br/>Gmail via SMTP over TLS<br/><i>Access: app password only</i>"]
+        collect --> hermes --> send
+    end
+    feeds --> collect
+    send --> inbox
+    untrusted["Receives text from the internet:<br/>treated as untrusted"] -.- hermes
+    classDef ai stroke:#2f81f7,stroke-width:2px
+    classDef dashed fill:none,stroke-dasharray:4 4
+    class hermes ai
+    class untrusted dashed
 ```
-GitHub Actions (daily schedule or "Run workflow" button)
-   │
-   ├─ 1. fetch_news.py      RSS feeds → titles + links, grouped by section   (no AI)
-   ├─ 2. Hermes Agent       skill "briefing-diario" → 5 topics per section   (Gemini)
-   └─ 3. send_email.py      Gmail SMTP over TLS → my inbox                   (no AI)
-```
+
+**Each step only gets the secret it needs.** Only the middle step uses AI, and it is exactly the one that reads text from the internet, so it has no email password and no tools.
 
 **"Most covered" is objective:** a topic ranks higher when more *different* outlets report on it. Politics mixes outlets with different editorial lines plus institutional sources (Chamber of Deputies, Senate). Crypto mixes a Brazilian outlet with the main international ones; English headlines are translated into Portuguese.
 

@@ -1,14 +1,20 @@
-# Hermes Daily Briefing — Politics & Crypto
+# Briefing Diário: Política e Cripto
 
-A daily, minimalist email with the **5 most-covered topics in Brazilian politics and the 5 most-covered topics in crypto** from the last 24 hours, written by [Hermes Agent](https://github.com/NousResearch/hermes-agent) (Nous Research) and delivered automatically by GitHub Actions.
+![Agendado no GitHub Actions](https://img.shields.io/badge/GitHub_Actions-todo_dia_7h17-2088FF?logo=githubactions&logoColor=white)
+![Hermes Agent](https://img.shields.io/badge/Hermes_Agent-Nous_Research-6E40C9)
+![Gemini](https://img.shields.io/badge/modelo-Gemini-4285F4?logo=googlegemini&logoColor=white)
+![Python](https://img.shields.io/badge/Python-s%C3%B3_biblioteca_padr%C3%A3o-3776AB?logo=python&logoColor=white)
+![Custo](https://img.shields.io/badge/custo-R%24_0-2EA043)
 
-It costs nothing to run: GitHub Actions is free for public repositories, the model runs on the Gemini API free tier, and the email goes out through a dedicated Gmail account.
+Todo dia de manhã chega no meu email um resumo curto com os **5 assuntos mais noticiados de política** e os **5 mais noticiados de cripto** nas últimas 24 horas.
 
-## What arrives in the inbox
+Quem escreve o resumo é o [Hermes Agent](https://github.com/NousResearch/hermes-agent), um agente de IA de código aberto da Nous Research, usando o Gemini do Google. Quem agenda e executa tudo é o GitHub Actions. O projeto não depende do meu computador ligado e não tem custo.
+
+## O que chega no email
+
+Exemplo ilustrativo de um tópico de cada seção:
 
 ```
-Briefing — 21/10/2026
-
 POLÍTICA
 
 1. Câmara aprova projeto X
@@ -19,97 +25,120 @@ https://...
 CRIPTO
 
 1. ETFs de bitcoin recebem novos aportes
-Fundos de bitcoin negociados em bolsa nos EUA receberam US$ 527 milhões, segundo dados citados pela imprensa.
+Fundos de bitcoin negociados em bolsa nos EUA receberam novos aportes, segundo a imprensa.
 Fontes: CoinDesk, Cointelegraph, The Block
 https://...
-
-—
-Gerado por Hermes Agent a partir de N manchetes de N veículos.
-Cripto: informativo, não é recomendação de investimento.
 ```
 
-## How it works
+Cada tópico mostra quais veículos cobriram o assunto e traz um link para conferir a notícia original.
+
+## Como funciona
+
+O trabalho é dividido em três etapas. Só a etapa do meio usa IA. A coleta e o envio são código comum, que faz sempre a mesma coisa.
 
 ```mermaid
 flowchart LR
-    feeds[("Public RSS feeds")]
-    inbox(["My inbox"])
-    subgraph actions["GitHub Actions · temporary runner · daily at 07:17 or Run workflow"]
+    feeds[("Feeds RSS públicos")]
+    inbox(["Caixa de entrada"])
+    subgraph actions["GitHub Actions · máquina temporária · todo dia às 7h17"]
         direction LR
-        collect["<b>1. Collect headlines</b><br/>fetch_news.py, no AI<br/>11 RSS feeds: title + link<br/><i>Access: no secrets</i>"]
-        hermes["<b>2. Summarize with Hermes</b><br/>skill briefing-diario + Gemini<br/>No terminal, no web<br/><i>Access: Gemini key only</i>"]
-        send["<b>3. Send email</b><br/>send_email.py, no AI<br/>Gmail via SMTP over TLS<br/><i>Access: app password only</i>"]
-        collect --> hermes --> send
+        coleta["<b>1. Coleta</b><br/>fetch_news.py, sem IA<br/>11 feeds: título + link<br/><i>Acesso: nenhum segredo</i>"]
+        resumo["<b>2. Resumo</b><br/>Hermes Agent + Gemini<br/>sem terminal, sem web<br/><i>Acesso: só a chave do Gemini</i>"]
+        envio["<b>3. Envio</b><br/>send_email.py, sem IA<br/>Gmail com conexão TLS<br/><i>Acesso: só a senha de app</i>"]
+        coleta --> resumo --> envio
     end
-    feeds --> collect
-    send --> inbox
-    untrusted["Receives text from the internet:<br/>treated as untrusted"] -.- hermes
-    classDef ai stroke:#2f81f7,stroke-width:2px
-    classDef dashed fill:none,stroke-dasharray:4 4
-    class hermes ai
-    class untrusted dashed
+    feeds --> coleta
+    envio --> inbox
+    aviso["Lê texto vindo da internet:<br/>tratado como não confiável"] -.- resumo
+    classDef ia stroke:#2f81f7,stroke-width:2px
+    classDef nota fill:none,stroke-dasharray:4 4
+    class resumo ia
+    class aviso nota
 ```
 
-**Each step only gets the secret it needs.** Only the middle step uses AI, and it is exactly the one that reads text from the internet, so it has no email password and no tools.
+| Etapa | O que faz | Usa IA? | Acessa |
+| --- | --- | :---: | --- |
+| **1. Coleta** | Lê os feeds RSS e separa título e link das notícias das últimas 24 horas | Não | Nenhuma senha |
+| **2. Resumo** | O Hermes segue a skill `briefing-diario` e escreve os 5 tópicos de cada seção | Sim | Só a chave do Gemini |
+| **3. Envio** | Monta o email em texto simples e envia pelo Gmail | Não | Só a senha de app |
 
-**"Most covered" is objective:** a topic ranks higher when more *different* outlets report on it. Politics mixes outlets with different editorial lines plus institutional sources (Chamber of Deputies, Senate). Crypto mixes a Brazilian outlet with the main international ones; English headlines are translated into Portuguese.
+## Como o "mais falado" é escolhido
 
-Sections come from [`feeds.txt`](feeds.txt) (`Category | Outlet | URL`). Adding a new line with a new category creates a new section in the email, no code changes needed.
+O critério é objetivo: um assunto sobe no ranking quando **mais veículos diferentes** falam dele. Várias matérias do mesmo site contam como uma só.
 
-The rules the agent follows live in [`skills/briefing-diario/SKILL.md`](skills/briefing-diario/SKILL.md), a Hermes skill in the open [agentskills.io](https://agentskills.io) format: how to filter sponsored content, group and rank headlines, neutral writing rules, crypto-specific rules (no investment advice, no price predictions, no hype), and a checklist the agent runs before answering.
+```mermaid
+flowchart LR
+    a["Manchetes das<br/>últimas 24 horas"] --> b["Descarta patrocinado<br/>e propaganda"]
+    b --> c["Junta as que falam<br/>do mesmo assunto"]
+    c --> d["Conta quantos veículos<br/>diferentes cobriram"]
+    d --> e["Os 5 primeiros<br/>de cada seção"]
+```
 
-## Security decisions
+Para nenhum veículo decidir sozinho o que é importante, as fontes têm linhas editoriais diferentes:
 
-This is a small project, but it touches the same problems as any AI agent in production:
-
-| Risk | Mitigation |
+| Seção | Fontes |
 | --- | --- |
-| **Prompt injection** — a headline could contain instructions aimed at the agent | Only titles and links reach the model, never article bodies. Text is sanitized (HTML stripped; `<`, `>` and `#` removed so data delimiters and section headers can't be forged). The prompt and the skill both state that headline content is data, not instructions. |
-| **Agent misuse of tools** | Hermes runs with `--toolsets skills` only: no terminal, no web browsing. Collection is done by a deterministic script, not by the agent. |
-| **Credential exposure** | All secrets live in GitHub Secrets (encrypted, masked in logs). The Gmail password exists **only** in the email step, so the agent step never has access to it. The workflow token is read-only (`permissions: contents: read`). |
-| **Account compromise** | A dedicated Gmail account with an app password, not a personal account or its main password. |
-| **Supply chain** | Hermes is installed from the official installer, and its SHA-256 is printed in every run for auditing. Python code uses only the standard library. |
-| **Crypto scams and promotion** | The skill discards sponsored content, press releases and "free airdrop" items, and forbids buy/sell language. Links must be copied from the collected headlines, so the agent can't introduce a new URL. |
-| **Biased or wrong output** | Neutral-writing rules, mandatory attribution of claims, and a verification step: every sentence must be backed by a headline, every link must exist in the input. |
-| **Untrusted feed data** | Download size limit, timeouts, per-outlet item cap, only `https://` links accepted. A section with fewer than 2 responding sources is dropped instead of sending a lopsided summary. |
+| **Política** | Agência Brasil, Poder360, Gazeta do Povo, CartaCapital, Câmara dos Deputados, Senado Federal |
+| **Cripto** | Livecoins, CoinDesk, Cointelegraph, Decrypt, The Block |
 
-## Setup
+As fontes ficam no arquivo [`feeds.txt`](feeds.txt), uma por linha, no formato `Seção | Veículo | Link do feed`. Uma linha com uma seção nova cria uma seção nova no email, sem mexer no código.
 
-1. Fork or create this repository (public, so Actions is free).
-2. Add these **repository secrets** (Settings → Secrets and variables → Actions):
+As regras que o agente segue estão em [`skills/briefing-diario/SKILL.md`](skills/briefing-diario/SKILL.md). É uma skill do Hermes no formato aberto [agentskills.io](https://agentskills.io) e funciona como um procedimento passo a passo: como agrupar e ordenar os assuntos, como escrever de forma neutra, cuidados específicos com cripto e uma lista de conferência antes de responder.
 
-   | Secret | Value |
+## Segurança
+
+O ponto central do projeto: o agente lê texto que vem da internet, e esse texto pode ter sido escrito para enganá-lo. Por isso ele é tratado como uma peça não confiável e só tem acesso ao mínimo necessário.
+
+| Risco | Proteção |
+| --- | --- |
+| **Instrução escondida numa manchete** (prompt injection) | Só título e link chegam ao modelo, nunca o texto completo da matéria. O texto é limpo antes (sem HTML e sem os caracteres `<`, `>` e `#`, para ninguém imitar os marcadores do prompt). O prompt e a skill avisam que manchete é dado, não ordem. |
+| **Agente com poder demais** | O Hermes roda só com a ferramenta de skills (`--toolsets skills`): sem terminal e sem acesso à web. A coleta é feita por um script, não pelo agente. |
+| **Vazamento de senha** | As senhas ficam nos Secrets do GitHub, guardadas com criptografia e escondidas nos logs. Cada etapa recebe só a senha que usa: a senha do email não existe na etapa do agente. O workflow só tem permissão de leitura no repositório. |
+| **Conta de email exposta** | O envio usa uma senha de app, separada da senha principal da conta e que pode ser cancelada a qualquer momento. Uma conta só para o envio isolaria ainda mais; preferi a simplicidade de usar a minha. |
+| **Código de terceiros comprometido** | O Hermes é instalado pelo instalador oficial, e o resumo SHA-256 do instalador fica registrado em cada execução. Os scripts em Python usam só a biblioteca padrão. |
+| **Golpes e propaganda em cripto** | A skill descarta conteúdo patrocinado e promoções do tipo "airdrop grátis" e proíbe sugerir compra ou venda. Todo link do email precisa vir da lista coletada, então o agente não consegue incluir um link novo. |
+| **Resumo errado ou tendencioso** | Regras de escrita neutra, declarações sempre atribuídas a quem falou e uma conferência final: cada frase precisa estar apoiada numa manchete. O aviso "não é recomendação de investimento" é colocado pelo código, não depende da IA lembrar. |
+| **Feed quebrado ou malicioso** | Limite de tamanho e de tempo de download, no máximo 30 notícias por veículo e só links `https://`. Se menos de 2 fontes de uma seção responderem, a seção fica de fora em vez de sair desequilibrada. |
+
+## Como usar no seu repositório
+
+1. Faça um fork deste repositório e deixe ele **público**, para o GitHub Actions ser gratuito.
+2. Em **Settings → Secrets and variables → Actions**, crie estes quatro Secrets:
+
+   | Secret | O que colocar |
    | --- | --- |
-   | `GEMINI_API_KEY` | Key from [Google AI Studio](https://aistudio.google.com/apikey) (no billing needed) |
-   | `GMAIL_ADDRESS` | Dedicated Gmail account that sends the briefing |
-   | `GMAIL_APP_PASSWORD` | App password of that account (requires 2-Step Verification) |
-   | `EMAIL_TO` | Where the briefing should arrive |
+   | `GEMINI_API_KEY` | Chave criada no [Google AI Studio](https://aistudio.google.com/apikey). Não precisa ativar cobrança. |
+   | `GMAIL_ADDRESS` | Conta Gmail que vai enviar o email |
+   | `GMAIL_APP_PASSWORD` | Senha de app dessa conta, criada em [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords). Exige a verificação em duas etapas ativa. |
+   | `EMAIL_TO` | Email que vai receber o resumo |
 
-3. Go to **Actions → Briefing diário (política e cripto) → Run workflow** to test it.
+3. Na aba **Actions**, abra **Briefing diário (política e cripto)** e clique em **Run workflow** para testar.
 
-The schedule is `17 10 * * *` (10:17 UTC = 07:17 in Brasília). Change it in [`.github/workflows/briefing.yml`](.github/workflows/briefing.yml).
+### Horário
 
-## Known limitations
+O agendamento está em [`.github/workflows/briefing.yml`](.github/workflows/briefing.yml), na linha `cron: "17 10 * * *"`. O GitHub usa o horário UTC, 3 horas a mais que Brasília, então 10h17 UTC equivale a **7h17 em Brasília**.
 
-- GitHub may delay scheduled runs, sometimes by up to an hour at peak times.
-- GitHub pauses schedules in public repositories after 60 days without activity; re-enable with one click.
-- The Gemini free tier has low quotas. One run per day fits, but heavy manual testing can hit the limit for the day.
-- Ranking uses headlines only, so it measures *coverage*, not importance.
-- Crypto coverage is mostly English-language international press; Brazil-specific crypto news may be underrepresented.
-- Each run starts from scratch; Hermes' persistent memory is not used here.
+## Limitações conhecidas
 
-## About AI use
+- **Demora:** uma execução leva uns 12 minutos, provavelmente porque o plano gratuito do Gemini impõe pausas entre as chamadas.
+- **Atraso no agendamento:** em horários de pico, o GitHub pode atrasar o início em até cerca de 1 hora.
+- **Pausa automática:** em repositório público, o GitHub pausa o agendamento depois de 60 dias sem nenhuma alteração. Para voltar, é um clique.
+- **Cobertura não é importância:** o ranking mede quantos veículos falaram do assunto, não o quanto ele importa.
+- **Cripto em inglês:** quase todas as fontes de cripto são internacionais, então notícias de cripto do Brasil podem aparecer menos.
+- **A IA pode errar:** a conferência reduz erros, mas não elimina. Por isso cada tópico tem o link da notícia original.
 
-This project was built with AI assistance (Claude), working step by step and checking each result against the official Hermes documentation. I reviewed every file and can explain each decision above.
+## Estrutura dos arquivos
 
-## Files
+| Arquivo | Para que serve |
+| --- | --- |
+| [`.github/workflows/briefing.yml`](.github/workflows/briefing.yml) | Agendamento e as etapas da execução |
+| [`feeds.txt`](feeds.txt) | Fontes e seções do email |
+| [`scripts/fetch_news.py`](scripts/fetch_news.py) | Coleta e limpeza das manchetes |
+| [`prompts/briefing.txt`](prompts/briefing.txt) | Modelo do pedido enviado ao Hermes |
+| [`skills/briefing-diario/SKILL.md`](skills/briefing-diario/SKILL.md) | Regras que o agente segue |
+| [`hermes/config.yaml`](hermes/config.yaml) | Configuração do modelo (Gemini) |
+| [`scripts/send_email.py`](scripts/send_email.py) | Envio do email |
 
-```
-.github/workflows/briefing.yml      schedule and pipeline
-feeds.txt                           news sources and sections (editable)
-scripts/fetch_news.py               RSS collection and sanitization
-prompts/briefing.txt                prompt template sent to Hermes
-skills/briefing-diario/SKILL.md     the Hermes skill
-hermes/config.yaml                  model configuration (Gemini)
-scripts/send_email.py               email delivery
-```
+## Sobre o uso de IA
+
+Este projeto foi construído com ajuda do Claude, uma etapa de cada vez, conferindo cada resultado na documentação oficial do Hermes. Revisei todos os arquivos e sei explicar cada decisão descrita aqui.

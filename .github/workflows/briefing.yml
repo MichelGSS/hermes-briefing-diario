@@ -23,7 +23,7 @@ jobs:
   # e por isso NUNCA recebe a senha do email.
   gerar:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Baixar o repositório
@@ -65,48 +65,71 @@ jobs:
           printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" > ~/.hermes/.env
           hermes --version
 
-      # Diagnóstico rápido: a chave e o modelo respondem? Falha em segundos,
-      # com a mensagem do Google, em vez de travar dentro do agente.
-      - name: Testar chave e modelo do Gemini
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          MODEL=$(grep -E '^\s*default:' hermes/config.yaml | awk '{print $2}')
-          echo "Modelo configurado: $MODEL"
-          code=$(curl -sS -o gemini_test.json -w '%{http_code}' \
-            -H "x-goog-api-key: $GEMINI_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{"contents":[{"parts":[{"text":"Responda apenas: ok"}]}]}' \
-            "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent")
-          echo "Resposta do Gemini: HTTP $code"
-          if [ "$code" != "200" ]; then
-            python -c "import json; e=json.load(open('gemini_test.json')).get('error', {}); print(e.get('status'), '-', e.get('message'))"
-            echo "Modelos de texto disponíveis para esta chave:"
-            curl -sS -H "x-goog-api-key: $GEMINI_API_KEY" \
-              "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200" \
-              | python -c "import json, sys; [print('  ' + m['name'].split('/')[-1]) for m in json.load(sys.stdin).get('models', []) if 'generateContent' in m.get('supportedGenerationMethods', [])]"
-            exit 1
-          fi
-
       # Etapa 3: o agente só resume. Sem terminal e sem web (--toolsets skills).
-      # Limite de 20 minutos e logs do Hermes impressos se algo der errado.
+      #
+      # O Gemini gratuito às vezes responde 503 ("muita demanda") ou 429 (cota).
+      # Por isso o passo tenta uma lista de modelos, em ordem, e repete a lista
+      # até 3 vezes com pausa entre as rodadas. Antes de chamar o Hermes, uma
+      # chamada curta confere se o modelo está respondendo naquele momento.
       - name: Gerar briefing com o Hermes
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MODELOS: "gemini-flash-latest gemini-3.7-flash gemini-2.5-flash gemini-3.5-flash-lite"
         run: |
-          status=0
-          timeout 1200 hermes chat --oneshot --quiet \
-            --skills briefing-diario \
-            --toolsets skills \
-            --max-turns 5 \
-            --query-file prompt.txt \
-            < /dev/null > digest.txt 2> hermes_stderr.log || status=$?
-          echo "Código de saída do Hermes: $status (124 = passou de 20 minutos)"
-          if [ "$status" != "0" ] || [ ! -s digest.txt ]; then
-            echo "----- stderr do Hermes -----"
-            tail -n 60 hermes_stderr.log || true
+          testar() {
+            curl -sS -o gemini_test.json -w '%{http_code}' \
+              -H "x-goog-api-key: $GEMINI_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{"contents":[{"parts":[{"text":"Responda apenas: ok"}]}]}' \
+              "https://generativelanguage.googleapis.com/v1beta/models/$1:generateContent" || echo 000
+          }
+          erro() {
+            python -c "import json; e=json.load(open('gemini_test.json')).get('error', {}); print('   ', e.get('status'), '-', (e.get('message') or '')[:160])" 2>/dev/null || true
+          }
+
+          ok=0
+          for rodada in 1 2 3; do
+            for modelo in $MODELOS; do
+              code=$(testar "$modelo")
+              case "$code" in
+                200) ;;
+                400|401|403)
+                  echo "Rodada $rodada · $modelo: HTTP $code, problema na chave da API. Não adianta tentar de novo."
+                  erro
+                  exit 1 ;;
+                *)
+                  echo "Rodada $rodada · $modelo: indisponível agora (HTTP $code), pulando."
+                  erro
+                  continue ;;
+              esac
+
+              echo "Rodada $rodada · $modelo: respondendo, gerando o briefing..."
+              status=0
+              timeout 900 hermes chat --oneshot --quiet \
+                --model "$modelo" \
+                --skills briefing-diario \
+                --toolsets skills \
+                --max-turns 5 \
+                --query-file prompt.txt \
+                < /dev/null > digest.txt 2> hermes_stderr.log || status=$?
+
+              if [ "$status" = "0" ] && [ -s digest.txt ]; then
+                echo "Briefing gerado com $modelo."
+                ok=1
+                break 2
+              fi
+              echo "Falhou com $modelo (código $status; 124 = passou de 15 minutos). Últimas linhas do Hermes:"
+              tail -n 20 hermes_stderr.log || true
+            done
+            if [ "$rodada" -lt 3 ]; then
+              echo "Nenhum modelo deu certo nesta rodada. Aguardando 3 minutos..."
+              sleep 180
+            fi
+          done
+
+          if [ "$ok" != "1" ]; then
+            echo "Nenhum modelo funcionou depois de 3 rodadas."
             echo "----- logs do Hermes -----"
-            ls -la ~/.hermes/logs 2>/dev/null || true
             tail -n 80 ~/.hermes/logs/*.log 2>/dev/null || true
             exit 1
           fi
